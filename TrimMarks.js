@@ -1,11 +1,13 @@
 /*
  * JapaneseTrimMarks.js - Adobe Acrobat Pro folder-level JavaScript
- * Version 2.4 / 2026-11-11
+ * Version 2.5 / 2026-11-12
  *
  * Usage:
  *   1. Put this file in Acrobat's user JavaScripts folder.
  *   2. Restart Acrobat completely.
- *   3. Open a PDF and choose File > \u65e5\u672c\u5f0f\u30c8\u30f3\u30dc\u3092\u8ffd\u52a0...
+ *   3. Open a PDF and choose the command from the File menu
+ *      or the hamburger menu in the new Windows interface.
+ *      Command name: \u65e5\u672c\u5f0f\u30c8\u30f3\u30dc\u3092\u8ffd\u52a0...
  *   4. Alternatively, run JPM.run() in Acrobat's JS console.
  *
  * IMPORTANT:
@@ -18,7 +20,7 @@
  */
 
 var JPM = {
-    version: "2.4",
+    version: "2.5",
     pt: function (mm) { return mm * 72 / 25.4; },
     mm: function (pt) { return pt * 25.4 / 72; },
 
@@ -756,18 +758,34 @@ var JPM_menuItem = {
     cExec: "JPM.run(event.target);",
     nPos: 0
 };
-try {
-    app.addMenuItem(JPM_menuItem);
-    JPM.menuLocation = "File";
-} catch (jpmFileError) {
-    JPM.menuError = "File: " + jpmFileError;
-    try {
-        JPM_menuItem.cParent = "Edit";
-        app.addMenuItem(JPM_menuItem);
-        JPM.menuLocation = "Edit";
-    } catch (jpmEditError) {
-        JPM.menuError += " / Edit: " + jpmEditError;
+(function () {
+    var parents = ["File", "Edit"];
+    if (app.platform === "WIN") {
+        // New Acrobat for Windows exposes a hamburger menu at the top level.
+        try {
+            var menus = app.listMenuItems() || [];
+            for (var i = 0; i < menus.length; i++) {
+                if (menus[i].cName === "AV2::HamburgerMenu") {
+                    parents.unshift(menus[i].cName);
+                    break;
+                }
+            }
+        } catch (listError) {
+            JPM.menuError = "listMenuItems: " + listError;
+        }
     }
-}
+
+    for (var p = 0; p < parents.length; p++) {
+        JPM_menuItem.cParent = parents[p];
+        try {
+            app.addMenuItem(JPM_menuItem);
+            JPM.menuLocation = parents[p];
+            return;
+        } catch (menuError) {
+            if (JPM.menuError) JPM.menuError += " / ";
+            JPM.menuError += parents[p] + ": " + menuError;
+        }
+    }
+})();
 console.println("[JPM] v" + JPM.version + ", menu=" + JPM.menuLocation +
                 (JPM.menuError ? ", note=" + JPM.menuError : ""));
