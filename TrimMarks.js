@@ -1,26 +1,28 @@
 /*
  * JapaneseTrimMarks.js - Adobe Acrobat Pro folder-level JavaScript
- * Version 2.5 / 2026-11-12
+ * Version 2.7 / 2026-11-13
  *
  * Usage:
  *   1. Put this file in Acrobat's user JavaScripts folder.
  *   2. Restart Acrobat completely.
  *   3. Open a PDF and choose the command from the File menu
  *      or the hamburger menu in the new Windows interface.
- *      Command name: \u65e5\u672c\u5f0f\u30c8\u30f3\u30dc\u3092\u8ffd\u52a0...
+ *      Command name: \u30c8\u30f3\u30dc\u3092\u8ffd\u52a0(\u8a66\u9a13\u7248)
  *   4. Alternatively, run JPM.run() in Acrobat's JS console.
  *
  * IMPORTANT:
  *   Standard mode edits the open PDF: work on a COPY of the original.
- *   Two-up mode creates a 450 x 317 mm PDF at actual size, with a 6 mm gutter.
- *   Rotated pages and non-standard UserUnit pages are deliberately rejected.
+ *   Two-up mode creates a 450 x 317 or 317 x 450 mm PDF at actual size.
+ *   The two copies have a 6 mm gutter.
+ *   Standard mode requires unrotated pages. Non-standard UserUnit pages
+ *   are rejected in both modes.
  *   If the PDF already has annotations, fields or links, created trim marks
  *   remain printable annotations rather than flattening those other objects.
  *   That case requires "Document and Markups" when printing.
  */
 
 var JPM = {
-    version: "2.5",
+    version: "2.7",
     pt: function (mm) { return mm * 72 / 25.4; },
     mm: function (pt) { return pt * 25.4 / 72; },
 
@@ -29,8 +31,17 @@ var JPM = {
         return isFinite(number) && number > 0 ? number : NaN;
     },
 
+    twoUpPaper: function (vertical) {
+        return vertical ? [317, 450] : [450, 317];
+    },
+
     dialog: function (defaultTrimW, defaultTrimH) {
-        var data = null;
+        var data = null, self = this;
+        var landscape = defaultTrimW > defaultTrimH;
+        var singlePaper = {
+            "paw1": landscape ? "317" : "225",
+            "pah1": landscape ? "225" : "317"
+        };
         var presetSizes = {
             "Original PDF": [defaultTrimW, defaultTrimH],
             "A4 (210 x 297)": [210, 297],
@@ -42,20 +53,34 @@ var JPM = {
             "Postcard (100 x 148)": [100, 148],
             "Business card (91 x 55)": [91, 55]
         };
+        function updateTwoUpPaper(dialog) {
+            var fields = dialog.store();
+            if (!fields.up2p) return;
+            var width = self.parseMM(fields.trw1), height = self.parseMM(fields.trh1);
+            if (!isFinite(width) || !isFinite(height)) return;
+            var paper = self.twoUpPaper(width > height);
+            dialog.load({"paw1": String(paper[0]), "pah1": String(paper[1])});
+        }
+
+        function setPaperMode(dialog, twoUp) {
+            if (twoUp) updateTwoUpPaper(dialog);
+            else dialog.load(singlePaper);
+            dialog.enable({"paw1": !twoUp, "pah1": !twoUp});
+        }
+
         var descriptor = {
             initialize: function (dialog) {
-                var a4 = presetSizes["A4 (210 x 297)"];
+                var a4 = presetSizes[landscape ? "A4 Landscape (297 x 210)" : "A4 (210 x 297)"];
                 dialog.load({
-                    "paw1": "225", "pah1": "317",
                     "trw1": String(a4[0]),
                     "trh1": String(a4[1]),
                     "bld1": "3",
                     "rept": false,
-                    "up2p": false,
+                    "up2p": true,
                     "prst": {
                         "Original PDF": -1,
-                        "A4 (210 x 297)": +2,
-                        "A4 Landscape (297 x 210)": -3,
+                        "A4 (210 x 297)": landscape ? -2 : +2,
+                        "A4 Landscape (297 x 210)": landscape ? +3 : -3,
                         "A5 (148 x 210)": -4,
                         "A3 (297 x 420)": -5,
                         "B5 JIS (182 x 257)": -6,
@@ -65,6 +90,7 @@ var JPM = {
                         "Custom (manual)": -10
                     }
                 });
+                setPaperMode(dialog, true);
             },
             prst: function (dialog) {
                 var selected = dialog.store().prst;
@@ -75,19 +101,27 @@ var JPM = {
                             "trw1": String(presetSizes[label][0]),
                             "trh1": String(presetSizes[label][1])
                         });
+                        updateTwoUpPaper(dialog);
                         break;
                     }
                 }
             },
+            trw1: updateTwoUpPaper,
+            trh1: updateTwoUpPaper,
             rept: function (dialog) {
-                if (dialog.store().rept) dialog.load({"up2p": false});
+                var fields = dialog.store();
+                if (fields.rept && fields.up2p) {
+                    dialog.load({"up2p": false});
+                    setPaperMode(dialog, false);
+                }
             },
             up2p: function (dialog) {
-                if (dialog.store().up2p) {
-                    dialog.load({
-                        "paw1": "450", "pah1": "317", "rept": false
-                    });
+                var fields = dialog.store();
+                if (fields.up2p) {
+                    singlePaper = {"paw1": fields.paw1, "pah1": fields.pah1};
+                    dialog.load({"rept": false});
                 }
+                setPaperMode(dialog, fields.up2p);
             },
             commit: function (dialog) { data = dialog.store(); },
             description: {
@@ -136,7 +170,7 @@ var JPM = {
                         name: "\u203b \u30ea\u30d4\u30fc\u30c8\u6642\u306f\u540c\u3058PDF\u304c2\u30da\u30fc\u30b8\u9023\u7d9a\u3057\u307e\u3059\u3002",
                         char_width: 45 },
                     { type: "check_box", item_id: "up2p",
-                        name: "450\u00d7317mm\u306e1\u30da\u30fc\u30b8\u306b\u539f\u5bf8\u30672\u9762\u4ed8\u3051\uff08\u30c9\u30d66mm\uff09" },
+                        name: "\u539f\u5bf8\u30672\u9762\u4ed8\u3051\uff08450\u00d7317\uff0f317\u00d7450mm\u3001\u30c9\u30d66mm\uff09" },
                     { type: "static_text",
                         name: "\u203b 2\u9762\u4ed8\u3051\u6642\u306e\u30c8\u30f3\u30dc\u9593\u9694\u306f3mm\u56fa\u5b9a\u3067\u3059\u3002",
                         char_width: 45 },
@@ -241,10 +275,14 @@ var JPM = {
             right + offset + rightOutside, cy, base + 23);
     },
 
-    drawTwoUpMarks: function (doc, page, pw, ph, tw, th, bleed) {
-        var cx = pw / 2, cy = ph / 2;
-        var trimLeft = cx - bleed - tw;
-        var trimRight = cx + bleed + tw;
+    drawTwoUpMarks: function (doc, page, pw, ph, tw, th, bleed, vertical) {
+        // Draw in the left/right layout's coordinates, then turn the
+        // marks with the sheet when the two copies are stacked vertically.
+        var width = vertical ? ph : pw, height = vertical ? pw : ph;
+        var along = vertical ? th : tw, across = vertical ? tw : th;
+        var cx = width / 2, cy = height / 2;
+        var trimLeft = cx - bleed - along;
+        var trimRight = cx + bleed + along;
         var reach = this.pt(12);
         var halfBar = this.pt(12.7);
         var barOffset = this.pt(3.5);
@@ -252,12 +290,13 @@ var JPM = {
         var outerLeg = this.pt(6.35);
         var id = 0, self = this;
         function line(x1, y1, x2, y2) {
-            self.addLine(doc, page, x1, y1, x2, y2, id++, 0.3);
+            if (vertical) self.addLine(doc, page, pw - y1, x1, pw - y2, x2, id++, 0.3);
+            else self.addLine(doc, page, x1, y1, x2, y2, id++, 0.3);
         }
 
         // Draw the four outside corners and the two side center marks.
         for (var sx = -1; sx <= 1; sx += 2) {
-            var edgeX = sx < 0 ? 0 : pw;
+            var edgeX = sx < 0 ? 0 : width;
             var x = sx < 0 ? trimLeft : trimRight;
             var bx = x + sx * bleed;
             var endX = x + sx * Math.min(reach, Math.abs(edgeX - x));
@@ -267,8 +306,8 @@ var JPM = {
             line(sideX - sx * Math.min(innerLeg, sideOffset * 0.6), cy,
                 sideX + sx * Math.min(outerLeg, Math.abs(edgeX - sideX)), cy);
             for (var sy = -1; sy <= 1; sy += 2) {
-                var edgeY = sy < 0 ? 0 : ph;
-                var y = cy + sy * th / 2;
+                var edgeY = sy < 0 ? 0 : height;
+                var y = cy + sy * across / 2;
                 var by = y + sy * bleed;
                 var endY = y + sy * Math.min(reach, Math.abs(edgeY - y));
                 line(endX, y, bx, y);
@@ -281,8 +320,8 @@ var JPM = {
         // One horizontal bar and three vertical strokes on each end.
         // The outer strokes are the two cuts; the middle is the bleed seam.
         for (var sy = -1; sy <= 1; sy += 2) {
-            var edge = sy < 0 ? 0 : ph;
-            var bleedY = cy + sy * (th / 2 + bleed);
+            var edge = sy < 0 ? 0 : height;
+            var bleedY = cy + sy * (across / 2 + bleed);
             var offset = Math.min(barOffset, Math.abs(edge - bleedY) / 2);
             var barY = bleedY + sy * offset;
             var innerY = barY - sy * Math.min(innerLeg, offset * 0.6);
@@ -295,15 +334,19 @@ var JPM = {
     },
 
     runTwoUp: function (source, s) {
-        var paperW = 450, paperH = 317;
+        var vertical = s.trimW > s.trimH;
+        var paper = this.twoUpPaper(vertical), paperW = paper[0], paperH = paper[1];
+        var trimAlong = vertical ? s.trimH : s.trimW;
+        var trimAcross = vertical ? s.trimW : s.trimH;
+        var paperAlong = vertical ? paperH : paperW;
+        var paperAcross = vertical ? paperW : paperH;
         var bleedMM = 3, minimumMargin = bleedMM + 3;
         var gutterMM = 2 * bleedMM;
-        if (!isFinite(s.paperW) || !isFinite(s.paperH) ||
-            !isFinite(s.trimW) || !isFinite(s.trimH) || s.trimW <= 0 || s.trimH <= 0 ||
-            Math.abs(s.paperW - paperW) > 0.01 || Math.abs(s.paperH - paperH) > 0.01 ||
-            (paperW - 2 * s.trimW - gutterMM) / 2 < minimumMargin ||
-            (paperH - s.trimH) / 2 < minimumMargin) {
-            app.alert("2\u9762\u4ed8\u3051\u306f\u7528\u7d19450\u00d7317mm\u3001\u4e2d\u592e\u306e\u30c9\u30d66mm\u56fa\u5b9a\u3067\u3059\u3002\n\u4ed5\u4e0a\u304c\u308a\u304b\u3089\u7528\u7d19\u306e\u5916\u7e01\u307e\u3067\u3001\u4e0a\u4e0b\u5de6\u53f3\u306b\u54046mm\u4ee5\u4e0a\u306e\u4f59\u767d\u304c\u5fc5\u8981\u3067\u3059\u3002");
+        if (!isFinite(s.trimW) || !isFinite(s.trimH) || s.trimW <= 0 || s.trimH <= 0 ||
+            (paperAlong - 2 * trimAlong - gutterMM) / 2 < minimumMargin ||
+            (paperAcross - trimAcross) / 2 < minimumMargin) {
+            app.alert("2\u9762\u4ed8\u3051\u306f\u7528\u7d19" + paperW + "\u00d7" + paperH +
+                "mm\u3001\u4e2d\u592e\u306e\u30c9\u30d66mm\u56fa\u5b9a\u3067\u3059\u3002\n\u4ed5\u4e0a\u304c\u308a\u304b\u3089\u7528\u7d19\u306e\u5916\u7e01\u307e\u3067\u3001\u4e0a\u4e0b\u5de6\u53f3\u306b\u54046mm\u4ee5\u4e0a\u306e\u4f59\u767d\u304c\u5fc5\u8981\u3067\u3059\u3002");
             return;
         }
         if (s.repeat) {
@@ -324,49 +367,50 @@ var JPM = {
 
         var pw = this.pt(paperW), ph = this.pt(paperH);
         var tw = this.pt(s.trimW), th = this.pt(s.trimH), bp = this.pt(bleedMM);
-        var tolerance = this.pt(0.5);
-        var pages = [], normalizeSource = false, hasAnnotations = source.numFields > 0;
+        var tolerance = this.pt(0.5), boxTolerance = 0.001;
+        var clipHalfW = tw / 2 + bp, clipHalfH = th / 2 + bp;
+        var pages = [], normalizeSource = false, centerCropNeeded = false;
+        var hasAnnotations = source.numFields > 0;
         for (var p = 0; p < source.numPages; p++) {
-            if (source.getPageRotation(p) !== 0 ||
-                (typeof source.getUserUnitSize === "function" &&
-                 Math.abs(source.getUserUnitSize(p) - 1) > 0.0001)) {
-                app.alert("\u30da\u30fc\u30b8 " + (p + 1) + " \u306f\u56de\u8ee2\u307e\u305f\u306f\u7279\u6b8a\u306aUserUnit\u3092\u4f7f\u3063\u3066\u3044\u307e\u3059\u3002");
+            if (typeof source.getUserUnitSize === "function" &&
+                Math.abs(source.getUserUnitSize(p) - 1) > 0.0001) {
+                app.alert("\u30da\u30fc\u30b8 " + (p + 1) + " \u306f\u7279\u6b8a\u306aUserUnit\u3092\u4f7f\u3063\u3066\u3044\u307e\u3059\u3002");
                 return;
             }
+            var rotation = source.getPageRotation(p);
+            if (rotation !== 0) normalizeSource = true;
             var crop = source.getPageBox("Crop", p);
             var media = source.getPageBox("Media", p);
             var trim = source.getPageBox("Trim", p);
             var w = crop[2] - crop[0], h = crop[1] - crop[3];
-            var isMarkedSheet = Math.abs(w - this.pt(225)) <= tolerance &&
-                                Math.abs(h - this.pt(317)) <= tolerance;
-            var trimMatches = Math.abs(trim[2] - trim[0] - tw) <= tolerance &&
-                              Math.abs(trim[1] - trim[3] - th) <= tolerance;
-            if (isMarkedSheet ? !trimMatches :
-                (w < tw - tolerance || h < th - tolerance ||
-                 w > tw + 2 * bp + tolerance || h > th + 2 * bp + tolerance)) {
-                app.alert("\u30da\u30fc\u30b8 " + (p + 1) + " \u306e\u30b5\u30a4\u30ba\u307e\u305f\u306fTrimBox\u304c\u3001\u6307\u5b9a\u306e\u4ed5\u4e0a\u304c\u308a " +
-                    s.trimW + "\u00d7" + s.trimH + "mm \u3068\u4e00\u81f4\u3057\u307e\u305b\u3093\u3002\n216\u00d7303mm\uff08\u5857\u308a\u8db3\u3057\u8fbc\u307f\uff09\u306e\u5834\u5408\u306f\u3001\u4ed5\u4e0a\u304c\u308a\u306bA4\uff08210\u00d7297mm\uff09\u3092\u9078\u3093\u3067\u304f\u3060\u3055\u3044\u3002");
+            if (w < tw - tolerance || h < th - tolerance) {
+                app.alert("\u30da\u30fc\u30b8 " + (p + 1) + " \u306e\u8868\u793a\u7bc4\u56f2\u304c\u3001\u6307\u5b9a\u306e\u4ed5\u4e0a\u304c\u308a " +
+                    s.trimW + "\u00d7" + s.trimH + "mm \u3088\u308a\u5c0f\u3055\u3044\u305f\u3081\u30012\u9762\u4ed8\u3051\u3067\u304d\u307e\u305b\u3093\u3002");
                 return;
             }
 
-            // Center on the source TrimBox when supplied; otherwise use
-            // the center of the artwork. Keep at most 3 mm of bleed per side.
-            var trimCenter = trimMatches ? trim : crop;
-            var cx = (trimCenter[0] + trimCenter[2]) / 2;
-            var cy = (trimCenter[1] + trimCenter[3]) / 2;
+            // Center the bleed area in the visible page for full-size or
+            // oversize input. Retain the TrimBox position for smaller input.
+            var cropToBleed = w > 2 * clipHalfW + boxTolerance ||
+                              h > 2 * clipHalfH + boxTolerance;
+            var coversBleed = w >= 2 * clipHalfW - boxTolerance &&
+                              h >= 2 * clipHalfH - boxTolerance;
+            if (cropToBleed) centerCropNeeded = true;
+            var trimMatches = Math.abs(trim[2] - trim[0] - tw) <= tolerance &&
+                              Math.abs(trim[1] - trim[3] - th) <= tolerance;
+            var centerBox = !cropToBleed && !coversBleed && trimMatches ? trim : crop;
+            var cx = (centerBox[0] + centerBox[2]) / 2;
+            var cy = (centerBox[1] + centerBox[3]) / 2;
             if (cx - tw / 2 < crop[0] - tolerance || cx + tw / 2 > crop[2] + tolerance ||
                 cy - th / 2 < crop[3] - tolerance || cy + th / 2 > crop[1] + tolerance) {
                 app.alert("\u30da\u30fc\u30b8 " + (p + 1) + " \u306e\u4ed5\u4e0a\u304c\u308a\u304c\u8868\u793a\u7bc4\u56f2\u304b\u3089\u306f\u307f\u51fa\u3057\u3066\u3044\u307e\u3059\u3002");
                 return;
             }
-            // The old 0.25 pt marks can straddle the bleed edge. Inset
-            // the clip by half a stroke on previously marked sheets.
-            var keepBleed = bp - (isMarkedSheet ? 0.13 : 0);
             var clip = [
-                Math.max(crop[0], cx - tw / 2 - keepBleed),
-                Math.min(crop[1], cy + th / 2 + keepBleed),
-                Math.min(crop[2], cx + tw / 2 + keepBleed),
-                Math.max(crop[3], cy - th / 2 - keepBleed)
+                Math.max(crop[0], cx - clipHalfW),
+                Math.min(crop[1], cy + clipHalfH),
+                Math.min(crop[2], cx + clipHalfW),
+                Math.max(crop[3], cy - clipHalfH)
             ];
             // Acrobat can use ArtBox or TrimBox as the watermark's
             // bounding box, even when CropBox already includes bleed.
@@ -374,7 +418,7 @@ var JPM = {
                 source.getPageBox("Bleed", p)];
             for (var b = 0; b < boxes.length && !normalizeSource; b++) {
                 for (var i = 0; i < 4; i++) {
-                    if (Math.abs(clip[i] - boxes[b][i]) > 0.001) {
+                    if (Math.abs(clip[i] - boxes[b][i]) > boxTolerance) {
                         normalizeSource = true;
                         break;
                     }
@@ -382,6 +426,7 @@ var JPM = {
             }
             pages.push({
                 clip: clip,
+                rotation: rotation,
                 dx: (clip[0] + clip[2]) / 2 - cx,
                 dy: (clip[1] + clip[3]) / 2 - cy
             });
@@ -389,8 +434,13 @@ var JPM = {
             if (annots && annots.length) hasAnnotations = true;
         }
 
-        if (app.alert("450\u00d7317mm\u306e\u65b0\u898fPDF\u306b\u540c\u3058\u539f\u7a3f\u3092\u5de6\u53f3\u306b100%\u3067\u914d\u7f6e\u3057\u3001\u4e2d\u592e\u306e\u30c9\u30d6\u30926mm\u306b\u3057\u307e\u3059\u3002\n" +
+        var direction = vertical ? "\u4e0a\u4e0b" : "\u5de6\u53f3";
+        if (app.alert(paperW + "\u00d7" + paperH + "mm\u306e\u65b0\u898fPDF\u306b\u540c\u3058\u539f\u7a3f\u3092" + direction +
+            "\u306b100%\u3067\u914d\u7f6e\u3057\u3001\u4e2d\u592e\u306e\u30c9\u30d6\u30926mm\u306b\u3057\u307e\u3059\u3002\n" +
             "\u5143PDF " + source.numPages + " \u30da\u30fc\u30b8 \u2192 \u51fa\u529bPDF " + source.numPages + " \u30da\u30fc\u30b8\uff08\u5404\u30da\u30fc\u30b82\u9762\uff09\u3002\n" +
+            (centerCropNeeded ? "\u5927\u304d\u3044\u539f\u7a3f\u306f\u30da\u30fc\u30b8\u4e2d\u592e\u304b\u3089\u6700\u5927 " +
+                (s.trimW + 2 * bleedMM) + "\u00d7" + (s.trimH + 2 * bleedMM) +
+                "mm \u306e\u7bc4\u56f2\u3092\u5207\u308a\u51fa\u3057\u3066\u914d\u7f6e\u3057\u307e\u3059\u3002\n" : "") +
             (hasAnnotations ? "\u203b \u6ce8\u91c8\u30fb\u30d5\u30a9\u30fc\u30e0\u306f\u8ee2\u5199\u3055\u308c\u307e\u305b\u3093\u3002\n" : "") +
             "\u7d9a\u884c\u3057\u307e\u3059\u304b\uff1f", 2, 2) !== 4) return;
 
@@ -411,7 +461,8 @@ var JPM = {
                 importDoc: importDoc,
                 path: importDoc ? importDoc.path : source.path,
                 destination: destination,
-                pages: pages, pw: pw, ph: ph, tw: tw, th: th, bp: bp
+                pages: pages, pw: pw, ph: ph, tw: tw, th: th, bp: bp,
+                vertical: vertical, offset: this.pt(trimAlong / 2 + bleedMM)
             };
             this.twoUpTimer = app.setTimeOut("JPM.finishTwoUp()", 150);
         } catch (error) {
@@ -426,9 +477,9 @@ var JPM = {
         if (!job) return;
         var out = null;
         try {
-            out = this.composeTwoUpPages(job.path, job.pages, job.pw, job.ph, job.tw / 2 + job.bp);
+            out = this.composeTwoUpPages(job.path, job.pages, job.pw, job.ph, job.offset, job.vertical);
             for (var p = 0; p < out.numPages; p++) {
-                this.drawTwoUpMarks(out, p, job.pw, job.ph, job.tw, job.th, job.bp);
+                this.drawTwoUpMarks(out, p, job.pw, job.ph, job.tw, job.th, job.bp, job.vertical);
             }
             out.flattenPages();
             this.saveTwoUpOutput(out, job.destination);
@@ -659,6 +710,9 @@ try {
                 copy.setPageBoxes({cBox: "Crop", nStart: p, nEnd: p, rBox: pages[p].clip});
                 var clip = copy.getPageBox("Crop", p);
                 copy.setPageBoxes({cBox: "Media", nStart: p, nEnd: p, rBox: clip});
+                // Crop in the source's displayed coordinates. Remove the
+                // page rotation on the copy and apply it to the watermark.
+                if (pages[p].rotation !== 0) copy.setPageRotations(p, p, 0);
             }
             // Save a separate file, then open that file through Acrobat.
             // bCopy keeps the extracted document at its original path.
@@ -697,7 +751,7 @@ try {
         }
     });
 
-    JPM.composeTwoUpPages = app.trustedFunction(function (path, pages, pw, ph, offset) {
+    JPM.composeTwoUpPages = app.trustedFunction(function (path, pages, pw, ph, offset, vertical) {
         app.beginPriv();
         var out = null;
         try {
@@ -708,6 +762,7 @@ try {
                 out.setPageBoxes({cBox: "Media", nStart: page, nEnd: page, rBox: sheet});
                 out.setPageBoxes({cBox: "Crop", nStart: page, nEnd: page, rBox: sheet});
                 for (var side = -1; side <= 1; side += 2) {
+                    var shift = side * offset;
                     out.addWatermarkFromFile({
                         cDIPath: path,
                         nSourcePage: page,
@@ -715,11 +770,11 @@ try {
                         nEnd: page,
                         nHorizAlign: app.constants.align.center,
                         nVertAlign: app.constants.align.center,
-                        nHorizValue: side * offset + pages[page].dx,
-                        nVertValue: pages[page].dy,
+                        nHorizValue: pages[page].dx + (vertical ? 0 : shift),
+                        nVertValue: pages[page].dy + (vertical ? shift : 0),
                         bPercentage: false,
                         nScale: 1,
-                        nRotation: 0,
+                        nRotation: (360 - pages[page].rotation) % 360,
                         nOpacity: 1,
                         bOnTop: true,
                         bOnScreen: true,
@@ -753,7 +808,7 @@ JPM.menuLocation = "not registered";
 JPM.menuError = "";
 var JPM_menuItem = {
     cName: "JPM_AddJapaneseTrimMarks",
-    cUser: "\u65e5\u672c\u5f0f\u30c8\u30f3\u30dc\u3092\u8ffd\u52a0...",
+    cUser: "\u30c8\u30f3\u30dc\u3092\u8ffd\u52a0(\u8a66\u9a13\u7248)",
     cParent: "File",
     cExec: "JPM.run(event.target);",
     nPos: 0
