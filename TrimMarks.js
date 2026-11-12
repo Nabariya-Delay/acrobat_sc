@@ -1,6 +1,6 @@
 /*
  * JapaneseTrimMarks.js - Adobe Acrobat Pro folder-level JavaScript
- * Version 2.7 / 2026-11-13
+ * Version 2.8 / 2026-11-13
  *
  * Usage:
  *   1. Put this file in Acrobat's user JavaScripts folder.
@@ -22,7 +22,7 @@
  */
 
 var JPM = {
-    version: "2.7",
+    version: "2.8",
     pt: function (mm) { return mm * 72 / 25.4; },
     mm: function (pt) { return pt * 25.4 / 72; },
 
@@ -49,6 +49,7 @@ var JPM = {
             "A5 (148 x 210)": [148, 210],
             "A3 (297 x 420)": [297, 420],
             "B5 JIS (182 x 257)": [182, 257],
+            "B5 JIS Landscape (257 x 182)": [257, 182],
             "B4 JIS (257 x 364)": [257, 364],
             "Postcard (100 x 148)": [100, 148],
             "Business card (91 x 55)": [91, 55]
@@ -84,10 +85,11 @@ var JPM = {
                         "A5 (148 x 210)": -4,
                         "A3 (297 x 420)": -5,
                         "B5 JIS (182 x 257)": -6,
-                        "B4 JIS (257 x 364)": -7,
-                        "Postcard (100 x 148)": -8,
-                        "Business card (91 x 55)": -9,
-                        "Custom (manual)": -10
+                        "B5 JIS Landscape (257 x 182)": -7,
+                        "B4 JIS (257 x 364)": -8,
+                        "Postcard (100 x 148)": -9,
+                        "Business card (91 x 55)": -10,
+                        "Custom (manual)": -11
                     }
                 });
                 setPaperMode(dialog, true);
